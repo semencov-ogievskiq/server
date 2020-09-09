@@ -9,9 +9,11 @@
   "author": "amso",
   "license": "MIT",
   "dependencies": {
+    "crypto-js": "^4.0.0",
     "express": "^4.17.1",
     "express-useragent": "^1.0.15",
     "jsonwebtoken": "^8.5.1",
+    "moment": "^2.27.0",
     "mysql2": "^2.1.0",
     "nodemon": "^2.0.4",
     "passport": "^0.4.1",

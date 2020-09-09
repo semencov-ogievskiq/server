@@ -3,6 +3,9 @@
  */
 module.exports = {
     port: 80,
+    jwt: {
+        secretOrKey: "server_jwt_secret"
+    },
     db: {
         mysql: {
             connectionLimit: 10,

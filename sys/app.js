@@ -7,11 +7,13 @@ const http = require('http')
 const socket = require('socket.io')
 const useragent = require('express-useragent')
 const mysql = require('mysql2/promise')
+const passport = require('passport')
 const config = require('../server.config')
 
 
 // --------------------------------------------------
-// Создание сервера http/socket
+// Создание сервера http/socket, и подключение 
+// дополнительного функционала
 // --------------------------------------------------
 
 /**
@@ -26,18 +28,28 @@ const server = http.createServer(app)
 
 /**
  * Свойство хранит объект Socket.io, подключенный к
- * серверу созданный через http.createServer()
+ * серверу созданный через http.createServer().
+ * Сервер будет инициализировать события своим клиентам
+ * через Socket соединение, по этому для прямого доступа к 
+ * socket.io мы объявлем его в нутри app
  */
 app.io = socket(server)
 
 /**
- * Свойство хранит объект с объектами подключения
- * к базам данных
+ * Подключение к БД должно использоваться отовсюду,
+ * и использоваться не только http сервером, по этому
+ * объявлем pool соединение с mysql через global видимость
  */
-app.db = {
-    mysql: mysql.createPool(config.db.mysql)
-};
+global.mysql = mysql.createPool(config.db.mysql)
 
+
+// --------------------------------------------------
+// Инициализация Passport.js, и расширение app функционалом
+// проверки авторизации 
+// --------------------------------------------------
+passport.use(require('./JwtStrategy')) // устанавливаем стратегию аутентификации пользователя
+app.auth = passport.authenticate // расширяем сервер функцией проверки авторизации пользователя
+app.use(passport.initialize()) // инициализация проверки аутентификации
 
 // --------------------------------------------------
 // Настройка socket части сервера
