@@ -10,6 +10,8 @@
   "license": "MIT",
   "dependencies": {
     "crypto-js": "^4.0.0",
+    "ejs": "^3.1.5",
+    "ejs-locals": "^1.0.2",
     "express": "^4.17.1",
     "express-useragent": "^1.0.15",
     "express-validator": "^6.6.1",

@@ -7,9 +7,9 @@ const http = require('http')
 const socket = require('socket.io')
 const useragent = require('express-useragent')
 const mysql = require('mysql2/promise')
-const passport = require('passport')
+const ejs = require('ejs-locals')
 const config = require('../server.config')
-
+const ident = require('./identification')
 
 // --------------------------------------------------
 // Создание сервера http/socket, и подключение 
@@ -47,9 +47,7 @@ global.mysql = mysql.createPool(config.db.mysql)
 // Инициализация Passport.js, и расширение app функционалом
 // проверки авторизации 
 // --------------------------------------------------
-passport.use(require('./JwtStrategy')) // устанавливаем стратегию аутентификации пользователя
-app.auth = passport.authenticate // расширяем сервер функцией проверки авторизации пользователя
-app.use(passport.initialize()) // инициализация проверки аутентификации
+app.use(ident.passport.initialize()) // инициализация проверки аутентификации
 
 // --------------------------------------------------
 // Настройка socket части сервера
@@ -70,6 +68,34 @@ app.io.use(require('./identificationSocket'))
  * Парсер заголовка user-agent ( Для определения браузера )
  */
 app.use(useragent.express())
+
+/**
+ * Прсинг запросов
+ */
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+/**
+ * Настройка CORS
+ */
+app.use((req, res, next) => {
+    res.header({
+      "Access-Control-Allow-Origin": "http://192.168.1.64",
+      "Access-Control-Allow-Credentials": true,
+      "Access-Control-Allow-Headers": 'Authorization,content-type'
+    })
+    next();
+})
+
+/**
+ * Подключение статических файлов
+ */
+app.use(express.static(__dirname + '/../static'))
+
+/**
+ * Подключение маршрутов идентификации
+ */
+app.use('/', ident.router)
 
 /**
  * Подключение роутеров к серверу
