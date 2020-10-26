@@ -9,6 +9,7 @@
   "author": "amso",
   "license": "MIT",
   "dependencies": {
+    "cors": "^2.8.5",
     "crypto-js": "^4.0.0",
     "ejs": "^3.1.5",
     "ejs-locals": "^1.0.2",

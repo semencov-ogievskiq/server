@@ -1,7 +1,6 @@
 /**
  * Модуль формирует набор методов и маршрутов, реализующих систему идентификации пользователя.
  */
-const m = {}
 const router = require('express').Router()
 
 const jwt = require('jsonwebtoken')
@@ -12,10 +11,45 @@ const ExtractJwt = passportJWT.ExtractJwt
 const JwtStrategy = passportJWT.Strategy
 const { body, validationResult } = require('express-validator')
 const config = require('../server.config').identification
+const { getUser } = require('./users/functions')
 
-// --------------------------------------------------
-// Настройка passport.js
-// --------------------------------------------------
+/**
+ * Функция проверки jwt_payload токена
+ * 
+ * @param {Object} jwt_payload 
+ * @returns {(Object|Boolean)} Вернет либо объект с данными пользователя, либо false если ошибка 
+ */
+async function identification(jwt_payload){
+    // Проверяем заполнение данных токена
+    if(!jwt_payload.aud || !jwt_payload.jti){
+        // Ошибка, токен не содержит требуемых данных
+        return false
+    }else{
+        // если в токене есть id сессии запрашиваем ее и проверяем токен
+        let [ session ] = await mysql.query("SELECT id_user FROM sessions WHERE id=? and CURRENT_TIMESTAMP() < exp",[jwt_payload.jti])
+        if(session.length==0){
+            // если сессия не найдена возращаем ошибку
+            return false
+        }else{
+            session = session[0]
+            // Проверяем что пользователь указанный в токене совпадает с пользователем которому выдавался токен
+            if( jwt_payload.aud != session.id_user ){
+                // Ошибка, пользователь в токене не соответствует пользователю которому выдавался токен
+                return false
+            }else{
+                // Запрашиваем данные пользователя
+                let user = await getUser(jwt_payload.aud)
+                if(user){
+                    return {...user, jti: jwt_payload.jti}
+                }else{  
+                    return false
+                }
+            }
+        }
+    }
+}
+
+// Стратегия проверки passport js
 passport.use(
     new JwtStrategy(
         { 
@@ -24,47 +58,39 @@ passport.use(
             issuer: config.jwt_options.issuer
         },
         async function(jwt_payload, next){
-            // Проверяем заполнение данных токена
-            if(!jwt_payload.aud || !jwt_payload.jti){
-                // Ошибка, токен не содержит требуемых данных
-                next(null,false)
+            let user = await identification(jwt_payload)
+            if(typeof user === "object"){
+                next(null, user)
             }else{
-                // если в токене есть id сессии запрашиваем ее и проверяем токен
-                let [ session ] = await mysql.query("SELECT id_user FROM sessions WHERE id=? and CURRENT_TIMESTAMP() < exp",[jwt_payload.jti])
-                if(session.length==0){
-                    // если сессия не найдена возращаем ошибку
-                    next(null,false)
-                }else{
-                    session = session[0]
-                    // Проверяем что пользователь указанный в токене совпадает с пользователем которому выдавался токен
-                    if( jwt_payload.aud != session.id_user ){
-                        // Ошибка, пользователь в токене не соответствует пользователю которому выдавался токен
-                        next(null,false)
-                    }else{
-                        // Запрашиваем данные пользователя
-                        let [user] = await mysql.query('SELECT id,mail,f,i,o, DATE_FORMAT(dt_birth, "%d.%m.%Y") dt_birth FROM users WHERE id=?',[ jwt_payload.aud ])
-                        if(user.length==0){
-                            // если пользователь не найден возращаем ошибку
-                            next(null,false)
-                        }else{
-                            // если найден пользователь, запрашиваем его группы и возвращаем данные
-                            user = {...user[0], jti: jwt_payload.jti, groups: []} // Грабли ... Иначе вернеться объет ResultRow
-                            // Запрашиваем группы
-                            let [groups] = await mysql.query('SELECT g.id FROM user_groups ug LEFT JOIN groups g ON ug.id_group=g.id WHERE ug.id_user=?',[ jwt_payload.aud ])
-                            if(groups.length > 0){
-                                groups.map((row)=>{
-                                    user.groups.push(row.id)
-                                })
-                            }
-                            
-                            next(null, user)
-                        }
-                    }
-                }
+                next(null, false)
             }
         }
     )
 )
+
+// Стратегия проверки socket.io
+const identSocket = async function(socket, next){
+    // Получаем токен переданный в query запроса
+    const token = socket.handshake.query.token
+    if(typeof token ==="string"){
+        // Читаем токен и получаем jwt_payload токена
+        let jwt_payload = jwt.verify(token, config.secret, config.jwt_options)
+        
+        let user = await identification(jwt_payload)
+        if(typeof user === "object"){
+            next()
+        }else{
+            next(new Error("Unauthorized"))
+            //console.log(socket)
+            //socket.to(socket.id).emit('unauthorized')
+            //socket.disconnect(true)
+        }
+    }else{ 
+        next(new Error("Unauthorized"))
+        //socket.to(socket.id).emit('unauthorized')
+        //socket.disconnect(true) 
+    }
+}
 
 // --------------------------------------------------
 // Объявление методов модуля
@@ -77,7 +103,7 @@ passport.use(
  * @param {String} _jwtid Идентификатор токена в БД
  * @returns {String} Сформированный JWT
  */
-m.createToken = function(_audience, _jwtid){
+const createToken = function(_audience, _jwtid){
     let options = { 
         ...config.jwt_options,
         audience: _audience,
@@ -141,7 +167,7 @@ router.post('/login', [
                     res.status(200).json({
                         status: true,
                         msg: 'User found',
-                        token: m.createToken( id_user , idSession )
+                        token: createToken( id_user , idSession )
                     })
                 }
             }catch(err){
@@ -186,5 +212,7 @@ router.get('/client', passport.authenticate('jwt',{session: false}), async funct
 })
 
 module.exports = {
-    ...m, router: router, passport: passport
+    router: router,             // Маршруты авторизации/идентитификации
+    passport: passport,         // Настроенный passport.js
+    identSocket: identSocket    // Стратегия идентитификации sockrt.io
 }
