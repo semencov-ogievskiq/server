@@ -11,7 +11,7 @@ const ExtractJwt = passportJWT.ExtractJwt
 const JwtStrategy = passportJWT.Strategy
 const { body, validationResult } = require('express-validator')
 const config = require('../server.config').identification
-const { getUser } = require('./users/functions')
+const { getUser } = require('../routers/users/functions')
 
 /**
  * Функция проверки jwt_payload токена
@@ -78,6 +78,22 @@ const identSocket = async function(socket, next){
         
         let user = await identification(jwt_payload)
         if(typeof user === "object"){
+            if( !socket.server.clients[user.id] ) socket.server.clients[user.id] = []
+            socket.server.clients[user.id].push(socket.id)
+
+            socket.server.emit('changedStateUser',user.id) // Сообщаем об изменение состояния подключения пользователя
+            socket.on('disconnect', ()=>{
+                socket.server.emit('changedStateUser',user.id) // Сообщаем об изменение состояния подключения пользователя
+                
+                var index = socket.server.clients[user.id].indexOf(socket.id)
+                if( index != -1 ){
+                    if( socket.server.clients[user.id].length > 1 ){
+                        socket.server.clients[user.id].splice(index,1)
+                    }else{
+                        delete socket.server.clients[user.id]
+                    } 
+                }
+            })
             next()
         }else{
             next(new Error("Unauthorized"))
@@ -214,5 +230,5 @@ router.get('/client', passport.authenticate('jwt',{session: false}), async funct
 module.exports = {
     router: router,             // Маршруты авторизации/идентитификации
     passport: passport,         // Настроенный passport.js
-    identSocket: identSocket    // Стратегия идентитификации sockrt.io
+    identSocket: identSocket,   // Стратегия идентитификации sockrt.io
 }

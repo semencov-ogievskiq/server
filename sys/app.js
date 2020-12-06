@@ -29,16 +29,15 @@ app.use(ident.passport.initialize())              // Инициализация 
 app.use(express.static(__dirname + '/../static')) // Статические файлы
 app.use('/', ident.router)                        // Router авторизации/идентитификации
 setRouters(app)                                   // Динамическое подключение Router
-app.use('/users',require('./users'))              // Маршрутизатор пользователей
 
 
 const server = http.createServer(app)
 
-app.io = socket(server)       // Подключение Socket.io
-app.io.use(ident.identSocket) // Подключение идентитификации пользователя Socket.io
-app.io.on("connection", function(socket){
-    socket.emit('msg','ff')
-})
+app.io = socket(server)                             // Подключение Socket.io
+app.io.clients = {}                                 // Массив данных хранящий индентификаторы сессий пользователей
+app.io.use(ident.identSocket)                       // Подключение идентитификации пользователя Socket.io
+app.io.on('connection', require('./appSocket') )    // Установка функционала socket сервера
+
 
 // ---------- Запуск сервера ----------
 server.listen(config.port,()=>{
