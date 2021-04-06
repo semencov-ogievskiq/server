@@ -11,7 +11,7 @@ const ExtractJwt = passportJWT.ExtractJwt
 const JwtStrategy = passportJWT.Strategy
 const { body, validationResult } = require('express-validator')
 const config = require('../server.config').identification
-const { getUser } = require('../routers/users/functions')
+const moment = require('moment')
 
 /**
  * Функция проверки jwt_payload токена
@@ -38,7 +38,7 @@ async function identification(jwt_payload){
                 return false
             }else{
                 // Запрашиваем данные пользователя
-                let user = await getUser(jwt_payload.aud)
+                let user = await dbAPI.getUser(jwt_payload.aud)
                 if(user){
                     return {...user, jti: jwt_payload.jti}
                 }else{  
@@ -78,19 +78,19 @@ const identSocket = async function(socket, next){
         
         let user = await identification(jwt_payload)
         if(typeof user === "object"){
-            if( !socket.server.clients[user.id] ) socket.server.clients[user.id] = []
-            socket.server.clients[user.id].push(socket.id)
+            if( !socket.server.clients[user.id_user] ) socket.server.clients[user.id_user] = []
+            socket.server.clients[user.id_user].push(socket.id)
 
-            socket.server.emit('changedStateUser',user.id) // Сообщаем об изменение состояния подключения пользователя
+            socket.server.emit('changedStateUser',user.id_user) // Сообщаем об изменение состояния подключения пользователя
             socket.on('disconnect', ()=>{
-                socket.server.emit('changedStateUser',user.id) // Сообщаем об изменение состояния подключения пользователя
+                socket.server.emit('changedStateUser',user.id_user) // Сообщаем об изменение состояния подключения пользователя
                 
-                var index = socket.server.clients[user.id].indexOf(socket.id)
+                var index = socket.server.clients[user.id_user].indexOf(socket.id)
                 if( index != -1 ){
-                    if( socket.server.clients[user.id].length > 1 ){
-                        socket.server.clients[user.id].splice(index,1)
+                    if( socket.server.clients[user.id_user].length > 1 ){
+                        socket.server.clients[user.id_user].splice(index,1)
                     }else{
-                        delete socket.server.clients[user.id]
+                        delete socket.server.clients[user.id_user]
                     } 
                 }
             })
@@ -134,32 +134,32 @@ const createToken = function(_audience, _jwtid){
 
 /**
  * Маршрут авторизации пользователя
+ * Для облегчения проверки авторизации на клеенте, добавлены следующие типы ошибок - 
+ * 1 - некоректные переданные данные,
+ * 2 - пользователь не найден
+ * 3 - не удалось открыть сессию
+ * 4 - ошибка mysql
  */
 router.post('/login', [
     body('username').exists({checkFalsy:true,checkNull:true}).trim().isEmail(),
     body('password').exists({checkFalsy:true,checkNull:true}).trim().isString(),
 ], async function(req, res){
-    // Проверяем валидацию данных
     if(!validationResult(req).isEmpty()){
-        // Если валидация вернула false, отправляем ответ с ошибкой
         res.status(400).json({
             status: false,
-            err: 'Required data is not provided or is in an incorrect format'
+            typeErr: 1,
+            err: 'Не корректно переданы данные'
         })
     }else{
-        // Если валидация вернула true
-        // Создаем hesh пароля
         let hash_password = crypto.SHA512(req.body.password)
         var [row] = await mysql.query("SELECT id FROM users WHERE mail=? and hash_password=?",[req.body.username,hash_password.toString()])
         if(!row.length){
-            // Если пользователь не найден
             res.status(400).json({
                 status: false,
-                msg: 'User not found'
+                typeErr: 2,
+                err: 'Пользователь не найден'
             })
         }else{
-            // Если Пользователь найден
-            // Получаем данные пользователя
             let id_user = row[0].id.toString()
             let browser = req.useragent.browser
             let os = req.useragent.os
@@ -173,23 +173,21 @@ router.post('/login', [
                 )
                 let idSession = result.insertId.toString()
                 if(!idSession){
-                    // Если результат запроса не добавил запись, отправляем ответ с ошибкой
                     res.status(400).json({
                         status: false,
-                        err: 'Failed to create user session'
+                        typeErr: 3,
+                        err: 'Не удалось открыть сессию'
                     })
                 }else{
-                    // Если удалось добавить сессию 
                     res.status(200).json({
                         status: true,
-                        msg: 'User found',
                         token: createToken( id_user , idSession )
                     })
                 }
             }catch(err){
-                // Если при выполнение запроса произошла ошибка
                 res.status(400).json({
                     status: false,
+                    typeErr: 4,
                     err: 'Error MySQL: ' + err.code
                 })
             }
@@ -224,7 +222,52 @@ router.use(async function(req, res, next){
  * # Только для авторизованных пользователей
  */
 router.get('/client', passport.authenticate('jwt',{session: false}), async function(req, res){
-    res.json({user: req.user})
+    try{
+        res.status(200).json( {user: await dbAPI.getUser( req.user.id_user )} )
+    }catch( err ){
+        console.log(err)
+        res.status(400).json( err )
+    }
+})
+
+/**
+ * Маршрут регистрации нового пользователя
+ */
+router.post('/registration',[
+    body("mail").exists({checkFalsy:true,checkNull:true}).trim().isEmail(),
+    body("password").exists({checkFalsy:true,checkNull:true}).trim().isString().custom( (value,{req})=>{ if( value==req.body.repeatPassword ) return value; else throw new Error("Passwords dont match");}),
+    body("f").exists({checkFalsy:true,checkNull:true}).trim().isString(),
+    body("i").exists({checkFalsy:true,checkNull:true}).trim().isString(),
+    body("dt_birth").exists({checkFalsy:true,checkNull:true}).trim().isString()
+], async function(req,res){
+    if(!validationResult(req).isEmpty() || !moment(req.body.dt_birth, 'DD.MM.YYYY').isValid()){
+        res.status(400).json({
+            err: validationResult(req)
+        })
+    }else{       
+        try{
+            // var data = {
+            //     mail: req.body.mail,
+            //     password: req.body.password,
+            //     repeatPassword: req.body.repeatPassword,
+            //     f: req.body.f,
+            //     i: req.body.i,
+            //     dt_birth: req.body.dt_birth,
+            //     groups: [3]
+            // }
+            // let idUser = await addUser( data )
+            let idUser = await dbAPI.addUser( req.body.mail, req.body.password, req.body.f, req.body.i, req.body.dt_birth )
+
+            if( !idUser ) throw new Error('Неудалось создать пользователя')
+            
+            req.app.io.emit( 'addUser', idUser )
+            res.status(200).json({id: idUser})
+        }catch( err ){   
+            res.status(400).json({
+                err: err.message
+            })
+        }
+    }
 })
 
 module.exports = {

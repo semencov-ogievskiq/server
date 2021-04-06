@@ -95,6 +95,32 @@ router.post('/addUser', passport.authenticate('jwt',{session: false}),[
     }
 })
 
+router.route('/:id_user/avatar/:id_avatar')
+    // Только для авторизованных пользователей
+    .all(passport.authenticate('jwt',{session: false}))
+    // Валидация индентификация пользователя
+    .all([
+        param('id_user').exists({checkFalsy:true,checkNull:true}).trim().isInt(),
+        param('id_avatar').exists({checkFalsy:true,checkNull:true}).trim().isInt()
+    ],function(req, res,next){
+        if(!validationResult(req).isEmpty()){
+            res.status(404).end()
+        }else{
+            next()
+        }
+    })
+    // Запрос данных пользователя
+    .get(async function(req,res){
+        try{
+            let [avatars] = await mysql.query( 'SELECT * FROM list_users WHERE id_user=?', [req.params.id_avatar] )
+            
+            res.status(200).json(avatars)
+        }catch( err ){
+            console.log(err.message)
+            res.status(400).json( err.message )
+        }
+    })
+
 /**
  * Маршруты пользователя
  */

@@ -18,6 +18,7 @@ const setRouters = require('./routers')         // Динамическое по
  * объявлем pool соединение с mysql через global видимость
  */
 global.mysql = mysql.createPool(config.db.mysql)
+global.dbAPI = require('./dbApi')                 // Набор функций взаимодействий с БД
 
 const app = express()
 
@@ -35,6 +36,19 @@ const server = http.createServer(app)
 
 app.io = socket(server)                             // Подключение Socket.io
 app.io.clients = {}                                 // Массив данных хранящий индентификаторы сессий пользователей
+app.io.emitOne = function(name,id,data){                    // Функция отправки сообщения канкретному пользователю
+    if(this.clients[id]){
+        for( let id_socket of this.clients[id] ){
+            var socket = this.sockets.sockets.get(id_socket)
+            socket.emit(name,data)
+        }
+    }
+}
+app.io.emitMany = function(name,list_id,data){           // Функция отправки сообщения группе пользователей
+    for( let id of list_id ){
+        this.emitOne( name, id, data )
+    }
+}
 app.io.use(ident.identSocket)                       // Подключение идентитификации пользователя Socket.io
 app.io.on('connection', require('./appSocket') )    // Установка функционала socket сервера
 

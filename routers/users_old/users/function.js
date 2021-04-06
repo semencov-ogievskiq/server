@@ -158,13 +158,13 @@ m.editUser = async function( data, id ){
             )
         }
 
-        await conn.commit()  // Фиксируем изменения
-        await conn.release() // Закрываем соединение
+        await conn.commit() // Фиксируем изменения
+        await conn.release()
         return true
 
     }catch(err){
         await conn.rollback() // Отменяем изменения
-        await conn.release()  // Закрываем соединение
+        await conn.release()
         throw err
     }
 }
@@ -196,7 +196,7 @@ m.addUser = async function( data ){
 
     try{
         // Создаем нового пользователя
-        var [ resAddUser ] = await conn.execute( "INSERT INTO users(mail,hash_password,f,i,o,dt_birth) VALUES( ? , ? , ? , ? , ? , STR_TO_DATE( ? , '%d.%m.%Y') )", [data.mail, hash_password, data.f, data.i, data.o, data.dt_birth])
+        var [ resAddUser ] = await conn.execute( "INSERT INTO users(mail,hash_password,f,i,o,dt_birth) VALUES( ? , ? , ? , ? , ? , STR_TO_DATE( ? , '%d.%m.%Y') )", [data.mail, hash_password, data.f, data.i, (data.o)?data.o:null, data.dt_birth])
 
         if( !resAddUser.insertId ){
             throw new Error('Не удалось добавить пользователя')
